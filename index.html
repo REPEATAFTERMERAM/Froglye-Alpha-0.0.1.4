@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Repeat After Me - Frogger</title>
+<style>
+body {
+    margin: 0;
+    font-family: 'Comic Sans MS', cursive, sans-serif;
+    background: #222;
+    overflow: hidden;
+}
+
+#logo {
+    display: block;
+    margin: 20px auto;
+    width: 200px;
+    cursor: pointer;
+}
+
+#levelScreen {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-auto-rows: 1fr;
+    width: 720px;   
+    height: 600px;  
+    margin: 0 auto; 
+}
+
+.level-btn {
+    width: 100%;
+    height: 100%;
+    background-color: white;
+    color: black;
+    font-family: 'Comic Sans MS', cursive;
+    font-size: 3rem;
+    border: 1px solid #ccc;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+
+.level-btn.locked {
+    background-color: #eee;
+    color: #aaa;
+    cursor: not-allowed;
+}
+
+#gameCanvas {
+    display: block;
+    margin: 0 auto;  
+    background-color: #999;
+}
+</style>
+</head>
+<body>
+
+<img id="logo" src="logo.png" alt="Logo">
+
+<div id="levelScreen"></div>
+
+<canvas id="gameCanvas" width="720" height="600" style="display:none;"></canvas>
+
+<script>
+// ================= LOGO CLICK =================
+document.getElementById('logo').onclick = () => {
+    window.location.href = 'https://www.tupagina.com'; // reemplaza con tu URL
+};
+
+const SQUARE = 120;
+const FROG_SCALE = 0.8; 
+const FROG_HITBOX = SQUARE * FROG_SCALE;
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const frogImg = new Image();
+frogImg.src = 'frog.png';
+
+const carImgs = {
+    blue: 'car_blue.png',
+    red: 'car_red.png',
+    green: 'car_green.png'
+};
+
+const carSpeeds = { blue:6, red:9, green:3 };
+const baseSpawnTime = 1000;
+
+let spawnTimer;
+let cars = [];
+let frog = { x: canvas.width/2 - SQUARE/2, y: canvas.height - SQUARE, size: SQUARE };
+let currentLevel = 1;
+let levelCompleted = false;
+let levelTimer = null;
+
+// ================= SONIDOS =================
+const audioAmbient = new Audio('ambient.mp3');
+audioAmbient.loop = true;
+audioAmbient.volume = 0.3; // <--- volumen reducido al 30%
+
+const audioCrash = new Audio('crash.mp3');
+const audioStep = new Audio('step.mp3');
+
+// ================= BOTONES =================
+const MAX_LEVEL = 10;
+const levelScreen = document.getElementById('levelScreen');
+let unlockedLevels = [1];
+
+function renderLevelButtons(){
+    levelScreen.innerHTML = '';
+    for(let i=1;i<=MAX_LEVEL;i++){
+        const btn = document.createElement('button');
+        btn.textContent=i;
+        btn.className='level-btn';
+        if(!unlockedLevels.includes(i)) btn.classList.add('locked');
+        btn.disabled = !unlockedLevels.includes(i);
+        btn.onclick = ()=>startLevel(i);
+        levelScreen.appendChild(btn);
+    }
+}
+renderLevelButtons();
+
+// ===================== LÓGICA =====================
+document.addEventListener('keydown', e=>{
+    if(canvas.style.display==='none') return;
+    let moved = false;
+    if(e.key==='w'){ frog.y -= SQUARE; moved = true; }
+    if(e.key==='s'){ frog.y += SQUARE; moved = true; }
+    if(e.key==='a'){ frog.x -= SQUARE; moved = true; }
+    if(e.key==='d'){ frog.x += SQUARE; moved = true; }
+    frog.x = Math.max(0, Math.min(canvas.width - FROG_HITBOX, frog.x));
+
+    if(moved){
+        audioStep.currentTime = 0;
+        audioStep.play();
+    }
+});
+
+// ==================== INICIAR NIVEL =================
+function startLevel(level){
+    levelScreen.style.display='none';
+    canvas.style.display='block';
+    currentLevel = level;
+    frog.x = canvas.width/2 - SQUARE/2;
+    frog.y = canvas.height - SQUARE;
+    cars=[];
+    levelCompleted=false;
+    levelTimer=null;
+
+    generateInitialCars();
+    startCarSpawner();
+
+    audioAmbient.currentTime = 0;
+    audioAmbient.play();
+}
+
+// ================= SPAWNER =================
+function startCarSpawner(){
+    clearInterval(spawnTimer);
+    const reduceTime = Math.floor((currentLevel-1)/3)*10;
+    spawnTimer = setInterval(()=>spawnCarRandom(), baseSpawnTime - reduceTime);
+}
+
+function spawnCarRandom(){
+    const laneCount = 3 + currentLevel-1; 
+    for(let i=0;i<laneCount;i++){
+        if(Math.random()<0.3){
+            const types = ['blue','red','green'];
+            const type = types[Math.floor(Math.random()*types.length)];
+            const laneY = canvas.height - SQUARE*(i+2);
+            const spawnX = -SQUARE;
+            cars.push({x: spawnX, y: laneY, speed: carSpeeds[type], type:type});
+        }
+    }
+}
+
+function generateInitialCars(){
+    const laneCount = 3 + currentLevel-1;
+    const types = ['blue','red','green'];
+    for(let i=0;i<laneCount;i++){
+        for(let j=0;j<2;j++){
+            const type = types[Math.floor(Math.random()*types.length)];
+            const laneY = canvas.height - SQUARE*(i+2);
+            cars.push({x: -SQUARE - j*300, y: laneY, speed:carSpeeds[type], type:type});
+        }
+    }
+}
+
+// ================= UPDATE =================
+function update(){
+    // Mover autos
+    cars.forEach(car=>{ 
+        car.x += car.speed; 
+    });
+
+    // Mantener autos en fila
+    const laneCount = 3 + currentLevel-1;
+    for(let i=0;i<laneCount;i++){
+        const laneY = canvas.height - SQUARE*(i+2);
+        const laneCars = cars.filter(c=>c.y===laneY).sort((a,b)=>a.x-b.x);
+        for(let j=1;j<laneCars.length;j++){
+            const prev = laneCars[j-1];
+            const curr = laneCars[j];
+            if(curr.x < prev.x + SQUARE){
+                curr.x = prev.x + SQUARE;
+                curr.speed = prev.speed;
+            }
+        }
+    }
+
+    cars = cars.filter(car=>car.x < canvas.width + SQUARE);
+
+    // Colisión sapo con hitbox centrada
+    for(let car of cars){
+        const carHitboxSize = SQUARE * 0.4; // cuadrado centrado
+        const carHitboxX = car.x + (SQUARE - carHitboxSize)/2;
+        const carHitboxY = car.y + (SQUARE - carHitboxSize)/2;
+
+        if(frog.x + (SQUARE-FROG_HITBOX)/2 < carHitboxX + carHitboxSize &&
+           frog.x + (SQUARE+FROG_HITBOX)/2 > carHitboxX &&
+           frog.y + (SQUARE-FROG_HITBOX)/2 < carHitboxY + carHitboxSize &&
+           frog.y + (SQUARE+FROG_HITBOX)/2 > carHitboxY){
+            
+            audioCrash.currentTime = 0;
+            audioCrash.play();
+
+            frog.x = canvas.width/2 - SQUARE/2;
+            frog.y = canvas.height - SQUARE;
+            levelTimer = null;
+        }
+    }
+
+    // Meta: última acera
+    const lastSidewalkY = canvas.height - SQUARE*(laneCount+2);
+    if(frog.y <= lastSidewalkY + SQUARE){
+        if(!levelTimer){
+            levelTimer = Date.now();
+        } else if(Date.now() - levelTimer >= 1000 && !levelCompleted){
+            levelCompleted = true;
+
+            if(currentLevel < MAX_LEVEL){
+                unlockedLevels.push(currentLevel+1);
+                renderLevelButtons();
+                setTimeout(()=>showLevelScreen(), 200);
+            } else {
+                // Nivel 10 completado → redirige a página
+                window.location.href = 'https://www.tupagina.com';
+            }
+        }
+    } else {
+        levelTimer = null;
+    }
+}
+
+// ================= DRAW =================
+function draw(){
+    // Cámara: sapo abajo, carriles arriba
+    const cameraY = frog.y - canvas.height + SQUARE*4;
+
+    ctx.fillStyle='#999';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    const laneCount = 3 + currentLevel-1;
+    ctx.fillStyle='#555';
+    for(let i=0;i<laneCount;i++){
+        const y = canvas.height - SQUARE*(i+2) - cameraY;
+        ctx.fillRect(0,y,canvas.width,SQUARE);
+    }
+
+    // Autos
+    cars.forEach(car=>{
+        const img = new Image();
+        img.src = carImgs[car.type];
+        ctx.drawImage(img, car.x, car.y - cameraY, SQUARE, SQUARE);
+    });
+
+    // Sapo más pequeño
+    ctx.drawImage(frogImg,
+        frog.x + SQUARE*(1-FROG_SCALE)/2,
+        frog.y - cameraY + SQUARE*(1-FROG_SCALE)/2,
+        FROG_HITBOX, FROG_HITBOX);
+
+    // Última acera
+    const lastSidewalkY = canvas.height - SQUARE*(laneCount+2) - cameraY;
+    ctx.fillStyle='#999';
+    ctx.fillRect(0,lastSidewalkY,canvas.width,SQUARE);
+
+    ctx.fillStyle='white';
+    ctx.font='40px Comic Sans MS';
+    ctx.fillText('Level: '+currentLevel,10,50);
+}
+
+// ================= LOOP =================
+function gameLoop(){
+    if(canvas.style.display!=='none'){
+        update();
+        draw();
+    }
+    requestAnimationFrame(gameLoop);
+}
+
+function showLevelScreen(){
+    canvas.style.display='none';
+    levelScreen.style.display='grid';
+    clearInterval(spawnTimer);
+    levelTimer=null;
+    audioAmbient.pause();
+}
+
+gameLoop();
+</script>
+</body>
+</html>
